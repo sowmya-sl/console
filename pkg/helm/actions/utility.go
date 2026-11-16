@@ -66,16 +66,24 @@ func findChartVersion(chartValue string) string {
 }
 
 func getChartInfoFromIndexEntry(
-	indexEntry, namespace, url string) *ChartInfo {
+	indexEntry, namespace, chartURL string) (*ChartInfo, error) {
 	indexArr := strings.Split(indexEntry, "--")
-	pathsOfUrl := strings.Split(url, "/")
-	version := findChartVersion(pathsOfUrl[len(pathsOfUrl)-1])
+	if len(indexArr) < 2 || indexArr[0] == "" || indexArr[1] == "" {
+		return nil, fmt.Errorf("invalid index entry %q: expected chartName--repositoryName", indexEntry)
+	}
+	var version string
+	if strings.HasPrefix(chartURL, "oci://") {
+		version = chartVersionFromURL(chartURL)
+	} else {
+		pathsOfUrl := strings.Split(chartURL, "/")
+		version = findChartVersion(pathsOfUrl[len(pathsOfUrl)-1])
+	}
 	return &ChartInfo{
 		RepositoryName:      indexArr[1],
 		RepositoryNamespace: namespace,
 		Name:                indexArr[0],
 		Version:             version,
-	}
+	}, nil
 }
 
 // writeTempFile creates a temporary file with the given `data`. `pattern`

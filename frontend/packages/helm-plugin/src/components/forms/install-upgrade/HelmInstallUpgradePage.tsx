@@ -131,7 +131,9 @@ const HelmInstallUpgradePage: FC = () => {
     releaseName: initialReleaseName || helmChartName || '',
     chartURL: initialChartURL,
     chartIndexEntry: indexEntry,
-    chartName,
+    // Fall back to the catalog query param so the version dropdown can resolve
+    // index entries even if the initial chart fetch fails (e.g. bad OCI tag).
+    chartName: chartName || helmChartName || '',
     chartRepoName: helmChartRepoName || '',
     appVersion,
     chartVersion,

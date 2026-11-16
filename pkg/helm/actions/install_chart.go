@@ -124,7 +124,10 @@ func InstallChart(ns, name, url string, vals map[string]interface{}, conf *actio
 			return nil, err
 		}
 	} else {
-		chartInfo = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		chartInfo, err = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate the URL before setting up authentication so a rejected URL
@@ -215,7 +218,10 @@ func InstallChartAsync(ns, name, url string, vals map[string]interface{}, conf *
 			return nil, err
 		}
 	} else {
-		chartInfo = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		chartInfo, err = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate the URL before setting up authentication so a rejected URL

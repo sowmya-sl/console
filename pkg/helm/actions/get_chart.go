@@ -30,7 +30,14 @@ func GetChart(url string, conf *action.Configuration, repositoryNamespace string
 		}
 		return loader.Load(chartLocation)
 	}
-	chartInfo = getChartInfoFromIndexEntry(indexEntry, repositoryNamespace, url)
+	// Do not fall back to getChartInfoFromChartUrl here: that walks every
+	// HelmChartRepository and fetches its index (including OCI tag listing),
+	// which is far too slow for chart GET. Callers that omit indexEntry should
+	// use noRepo=true / GetChartFromURL, or pass chartName--repositoryName.
+	chartInfo, err = getChartInfoFromIndexEntry(indexEntry, repositoryNamespace, url)
+	if err != nil {
+		return nil, err
+	}
 	// Validate the URL before setting up authentication so a rejected URL
 	// returns before any temporary TLS files are created.
 	if err := validateChartURL(url); err != nil {

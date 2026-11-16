@@ -10,11 +10,15 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
+	"regexp"
 	"strings"
 	"time"
 
 	"sigs.k8s.io/yaml"
 
+	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/registry"
 	repo "helm.sh/helm/v4/pkg/repo/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -39,6 +43,10 @@ var (
 		Version:  "v1beta1",
 		Resource: "projecthelmchartrepositories",
 	}
+	// Same shape as pkg/helm/actions/install_chart.go (svVersionCore + optional
+	// prerelease/build). Allows tags like "1.0.0-rc.1"; supply-chain tags such as
+	// "25.2.14-metadata" also match semver, so isInstallableOCIChartTag excludes those.
+	ociChartVersionTagRe = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?(?:\+[a-zA-Z0-9]+(?:\.[a-zA-Z0-9]+)*)?$`)
 )
 
 const (
@@ -64,7 +72,7 @@ type helmRepo struct {
 
 func validateRepoURL(u *url.URL, isClusterScoped bool) error {
 	switch u.Scheme {
-	case "http", "https":
+	case "http", "https", "oci":
 	default:
 		return fmt.Errorf("unsupported URL scheme %q: only http and https are allowed", u.Scheme)
 	}
@@ -142,13 +150,87 @@ func (hr helmRepo) OverwrittenRepoName() string {
 	}
 	return ""
 }
+func isInstallableOCIChartTag(tag string) bool {
+	if !ociChartVersionTagRe.MatchString(tag) {
+		return false
+	}
+	// Bitnami and others publish referrer/supply-chain tags that are valid semver
+	// (e.g. "25.2.14-metadata") but are not Helm chart packages.
+	lower := strings.ToLower(tag)
+	for _, suffix := range []string{"-metadata", "-att", ".sig", ".att", ".metadata"} {
+		if strings.HasSuffix(lower, suffix) {
+			return false
+		}
+	}
+	return true
+}
 
-func (hr helmRepo) IndexFile() (*repo.IndexFile, error) {
-	var indexFile repo.IndexFile
+func getIndexFile(hr helmRepo) (*repo.IndexFile, error) {
+	ociRef := strings.TrimPrefix(hr.URL.String(), "oci://")
 	httpClient, err := hr.httpClient()
 	if err != nil {
 		return nil, err
 	}
+	httpClient.Timeout = 5 * time.Second
+	regClient, err := registry.NewClient(registry.ClientOptHTTPClient(httpClient))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create registry client: %v", err)
+	}
+	tags, err := regClient.Tags(ociRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tags: %v", err)
+	}
+	chartTags := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if isInstallableOCIChartTag(tag) {
+			chartTags = append(chartTags, tag)
+		}
+	}
+	if len(chartTags) == 0 {
+		return nil, fmt.Errorf("no versions found for registry artifact %s", ociRef)
+	}
+	latest := chartTags[0]
+	// Default Pull includes the chart layer; PullOptWithChart(false) alone errors with
+	// "must specify at least one layer to pull (chart/prov)". Chart.Meta still comes
+	// from the config blob. We only do this once for the latest tag.
+	pullResult, err := regClient.Pull(ociRef + ":" + latest)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pull registry artifact %s: %v", ociRef, err)
+	}
+	chartName := path.Base(hr.URL.Path)
+	versions := make(repo.ChartVersions, 0, len(chartTags))
+	for _, tag := range chartTags {
+		chartURL := fmt.Sprintf("oci://%s:%s", ociRef, tag)
+		if tag == latest {
+			versions = append(versions, &repo.ChartVersion{
+				Metadata: pullResult.Chart.Meta,
+				URLs:     []string{chartURL},
+				Digest:   pullResult.Manifest.Digest,
+			})
+			continue
+		}
+		versions = append(versions, &repo.ChartVersion{
+			Metadata: &chart.Metadata{Name: chartName, Version: tag, APIVersion: "v2"},
+			URLs:     []string{chartURL},
+		})
+	}
+	return &repo.IndexFile{
+		APIVersion: "v1",
+		Entries:    map[string]repo.ChartVersions{chartName: versions},
+	}, nil
+}
+func (hr helmRepo) IndexFile() (*repo.IndexFile, error) {
+	var indexFile repo.IndexFile
+
+	httpClient, err := hr.httpClient()
+	if err != nil {
+		return nil, err
+	}
+	if hr.URL.Scheme == "oci" {
+
+		return getIndexFile(hr)
+	}
+
 	indexURL := hr.URL.String()
 	if !strings.HasSuffix(indexURL, "/index.yaml") {
 		indexURL += "/index.yaml"

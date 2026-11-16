@@ -38,7 +38,10 @@ func RenderManifests(name string, url string, vals map[string]interface{}, conf 
 			return emptyResponse, err
 		}
 	} else {
-		chartInfo = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		chartInfo, err = getChartInfoFromIndexEntry(indexEntry, ns, url)
+		if err != nil {
+			return emptyResponse, err
+		}
 	}
 	client.ChartPathOptions.Version = chartInfo.Version
 	connectionConfig, isClusterScoped, err := getRepositoryConnectionConfig(chartInfo.RepositoryName, ns, dynamicClient)

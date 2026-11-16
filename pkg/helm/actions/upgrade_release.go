@@ -68,7 +68,10 @@ func UpgradeRelease(
 				return nil, err
 			}
 		} else {
-			chartInfo = getChartInfoFromIndexEntry(indexEntry, releaseNamespace, chartUrl)
+			chartInfo, err = getChartInfoFromIndexEntry(indexEntry, releaseNamespace, chartUrl)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Validate the URL before setting up authentication so a rejected URL
@@ -208,7 +211,10 @@ func UpgradeReleaseAsync(
 				return nil, err
 			}
 		} else {
-			chartInfo = getChartInfoFromIndexEntry(indexEntry, releaseNamespace, chartUrl)
+			chartInfo, err = getChartInfoFromIndexEntry(indexEntry, releaseNamespace, chartUrl)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		// Validate the URL before setting up authentication so a rejected URL

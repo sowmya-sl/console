@@ -156,6 +156,78 @@ func TestGetSecretWatchEvents(t *testing.T) {
 	}
 }
 
+func TestGetChartInfoFromIndexEntry(t *testing.T) {
+	tests := []struct {
+		name        string
+		indexEntry  string
+		namespace   string
+		url         string
+		wantName    string
+		wantRepo    string
+		wantVersion string
+		wantErr     string
+	}{
+		{
+			name:        "valid chartName--repoName http archive",
+			indexEntry:  "influxdb--without-tls",
+			namespace:   "default",
+			url:         "https://example.com/influxdb-1.2.3.tgz",
+			wantName:    "influxdb",
+			wantRepo:    "without-tls",
+			wantVersion: "1.2.3",
+		},
+		{
+			name:        "oci registry artifact tag",
+			indexEntry:  "mychart--oci-repo",
+			namespace:   "default",
+			url:         "oci://registry.example.com/helm-charts/mychart:0.1.0",
+			wantName:    "mychart",
+			wantRepo:    "oci-repo",
+			wantVersion: "0.1.0",
+		},
+		{
+			name:        "oci registry artifact with host port",
+			indexEntry:  "mychart--local-oci",
+			namespace:   "ns1",
+			url:         "oci://localhost:5000/helm-charts/mychart:1.2.3",
+			wantName:    "mychart",
+			wantRepo:    "local-oci",
+			wantVersion: "1.2.3",
+		},
+		{
+			name:       "empty index entry",
+			indexEntry: "",
+			namespace:  "default",
+			url:        "oci://registry.example.com/charts/mychart:1.0.0",
+			wantErr:    "invalid index entry",
+		},
+		{
+			name:       "missing separator",
+			indexEntry: "influxdb",
+			namespace:  "default",
+			url:        "https://example.com/chart.tgz",
+			wantErr:    "invalid index entry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, err := getChartInfoFromIndexEntry(tt.indexEntry, tt.namespace, tt.url)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+				require.Nil(t, info)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantName, info.Name)
+			require.Equal(t, tt.wantRepo, info.RepositoryName)
+			require.Equal(t, tt.namespace, info.RepositoryNamespace)
+			require.Equal(t, tt.wantVersion, info.Version)
+		})
+	}
+}
+
 func TestGetSecretWatchDeadline(t *testing.T) {
 	client := k8sfake.NewSimpleClientset()
 	watcher := watch.NewRaceFreeFake()
